@@ -32,7 +32,10 @@ function isMetaMaskInstalled(): boolean {
   return !!getMetaMask();
 }
 
+let networkChecked = false;
+
 async function ensureCorrectNetwork() {
+  if (networkChecked) return;
   const eth = getMetaMask();
   if (!eth) throw new Error('MetaMask not installed');
 
@@ -60,6 +63,7 @@ async function ensureCorrectNetwork() {
       }
     }
   }
+  networkChecked = true;
 }
 
 // ── GenLayer Client ───────────────────────────────────────────────────────────
@@ -345,20 +349,24 @@ type PollUnsubscribe = () => void;
 export function subscribeToAnalysis(
   address: string,
   callback: PollCallback<WalletAnalysis>,
-  intervalMs = 3000
+  intervalMs = 15000
 ): PollUnsubscribe {
   let lastResult: string = '';
   let active = true;
+  let pollCount = 0;
+  const maxPolls = 20; // max ~5 minutes
   const startedAt = Date.now();
 
   const poll = async () => {
-    if (!active) return;
+    if (!active || pollCount >= maxPolls) return;
+    pollCount++;
+
     try {
       const eth = getMetaMask();
-      if (!eth) { callback(null); return; }
+      if (!eth) return;
 
       const accounts = await eth.request({ method: 'eth_accounts' });
-      if (!accounts?.length) { callback(null); return; }
+      if (!accounts?.length) return;
 
       const client = await getClient(accounts[0]);
       const raw = await readContract(client, 'get_analysis', [address]);
@@ -369,11 +377,11 @@ export function subscribeToAnalysis(
         try {
           const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
           if (parsed && parsed.trust_score !== undefined) {
-            // Only accept results newer than when this subscription started
             const analyzedAt = new Date(parsed.analyzed_at || 0).getTime();
             if (analyzedAt >= startedAt) {
               lastResult = str;
               callback(normalizeAnalysisResult(parsed));
+              return; // found result, stop polling
             }
           }
         } catch (_) {}
@@ -381,7 +389,10 @@ export function subscribeToAnalysis(
     } catch (e) {
       console.warn('[GenLayer] Poll error:', e);
     }
-    if (active) setTimeout(poll, intervalMs);
+
+    // Exponential backoff: 15s, 20s, 25s, 30s
+    const nextDelay = Math.min(intervalMs + pollCount * 3000, 30000);
+    if (active) setTimeout(poll, nextDelay);
   };
 
   poll();
@@ -393,20 +404,24 @@ export function subscribeToAnalysis(
  */
 export function subscribeToComparison(
   callback: PollCallback<WalletComparison>,
-  intervalMs = 3000
+  intervalMs = 15000
 ): PollUnsubscribe {
   let lastComparisonId: string = '';
   let active = true;
+  let pollCount = 0;
+  const maxPolls = 20;
   const startedAt = Date.now();
 
   const poll = async () => {
-    if (!active) return;
+    if (!active || pollCount >= maxPolls) return;
+    pollCount++;
+
     try {
       const eth = getMetaMask();
-      if (!eth) { callback(null); return; }
+      if (!eth) return;
 
       const accounts = await eth.request({ method: 'eth_accounts' });
-      if (!accounts?.length) { callback(null); return; }
+      if (!accounts?.length) return;
 
       const client = await getClient(accounts[0]);
       const historyRaw = await readContract(client, 'get_comparison_history', []);
@@ -427,6 +442,7 @@ export function subscribeToComparison(
                 const analyzedAt = new Date(parsed.analyzed_at || 0).getTime();
                 if (analyzedAt >= startedAt) {
                   callback(normalizeComparisonResult(parsed, parsed.addresses || []));
+                  return;
                 }
               }
             } catch (_) {}
@@ -436,7 +452,9 @@ export function subscribeToComparison(
     } catch (e) {
       console.warn('[GenLayer] Comparison poll error:', e);
     }
-    if (active) setTimeout(poll, intervalMs);
+
+    const nextDelay = Math.min(intervalMs + pollCount * 3000, 30000);
+    if (active) setTimeout(poll, nextDelay);
   };
 
   poll();
