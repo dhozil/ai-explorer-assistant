@@ -2,10 +2,10 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 
 // GenLayer Studionet configuration
 export const GENLAYER_STUDIONET = {
-  id: 2024,
+  id: 61999,
   name: 'GenLayer Studio',
   rpcUrl: 'https://studio.genlayer.com/api',
-  chainId: '0x7e8', // 2024 in hex
+  chainId: '0xF22F', // 61999 in hex
   nativeCurrency: {
     name: 'GEN',
     symbol: 'GEN',

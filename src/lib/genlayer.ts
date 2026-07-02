@@ -71,11 +71,13 @@ async function ensureCorrectNetwork() {
 async function getClient(walletAddress: string) {
   await ensureCorrectNetwork();
 
-  // genlayer-js uses MetaMask as signer when address is provided
-  // It detects window.ethereum and uses it for signing
+  const eth = getMetaMask();
+  if (!eth) throw new Error('No wallet provider found');
+
   const client = genlayerCreateClient({
     chain: chains.studionet,
     account: walletAddress as `0x${string}`,
+    provider: eth,
   });
 
   return client;
@@ -107,7 +109,7 @@ async function writeContract(
   client: any,
   functionName: string,
   args: any[] = []
-): Promise<any> {
+): Promise<string> {
   console.log(`[GenLayer] writeContract: ${functionName}(${JSON.stringify(args).substring(0, 100)})`);
   console.log(`[GenLayer] Contract: ${getContractAddress()}`);
   console.log(`[GenLayer] MetaMask will popup for signature...`);
@@ -120,15 +122,9 @@ async function writeContract(
   });
   console.log(`[GenLayer] TX submitted: ${txHash}`);
 
-  console.log(`[GenLayer] Waiting for TX confirmation...`);
-  const receipt = await client.waitForTransactionReceipt({
-    hash: txHash,
-    status: 'ACCEPTED',
-    retries: 12,
-    interval: 5000,
-  });
-  console.log(`[GenLayer] TX confirmed: ${receipt?.transactionHash}, status: ${receipt?.status}`);
-  return receipt;
+  // Don't wait for receipt — GenLayer AI consensus takes 30-90s+
+  // Subscription polling will detect when result is stored in TreeMap
+  return txHash;
 }
 
 /**
