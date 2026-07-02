@@ -37,30 +37,36 @@ let networkChecked = false;
 async function ensureCorrectNetwork() {
   if (networkChecked) return;
   const eth = getMetaMask();
-  if (!eth) throw new Error('MetaMask not installed');
+  if (!eth) throw new Error('No wallet provider found');
 
-  const chainIdHex = await eth.request({ method: 'eth_chainId' });
-  if (chainIdHex?.toLowerCase() !== STUDIONET_CHAIN_ID_HEX.toLowerCase()) {
-    try {
+  try {
+    const chainIdHex = await eth.request({ method: 'eth_chainId' });
+    console.log(`[GenLayer] Current chain: ${chainIdHex}, expected: ${STUDIONET_CHAIN_ID_HEX}`);
+
+    if (chainIdHex?.toLowerCase() !== STUDIONET_CHAIN_ID_HEX.toLowerCase()) {
+      console.log(`[GenLayer] Switching to GenLayer Studionet...`);
       await eth.request({
         method: 'wallet_switchEthereumChain',
         params: [{ chainId: STUDIONET_CHAIN_ID_HEX }],
       });
-    } catch (switchErr: any) {
-      if (switchErr.code === 4902) {
-        await eth.request({
-          method: 'wallet_addEthereumChain',
-          params: [{
-            chainId: STUDIONET_CHAIN_ID_HEX,
-            chainName: STUDIONET_NAME,
-            nativeCurrency: { name: 'GEN', symbol: 'GEN', decimals: 18 },
-            rpcUrls: [STUDIONET_RPC],
-            blockExplorerUrls: ['https://studio.genlayer.com/explorer'],
-          }],
-        });
-      } else {
-        throw switchErr;
-      }
+      console.log(`[GenLayer] Network switched`);
+    }
+  } catch (switchErr: any) {
+    console.log(`[GenLayer] Switch error code: ${switchErr.code}`);
+    if (switchErr.code === 4902) {
+      console.log(`[GenLayer] Adding GenLayer Studionet chain...`);
+      await eth.request({
+        method: 'wallet_addEthereumChain',
+        params: [{
+          chainId: STUDIONET_CHAIN_ID_HEX,
+          chainName: STUDIONET_NAME,
+          nativeCurrency: { name: 'GEN', symbol: 'GEN', decimals: 18 },
+          rpcUrls: [STUDIONET_RPC],
+          blockExplorerUrls: ['https://explorer-studio.genlayer.com'],
+        }],
+      });
+    } else {
+      throw switchErr;
     }
   }
   networkChecked = true;
@@ -68,10 +74,6 @@ async function ensureCorrectNetwork() {
 
 // ── GenLayer Client ───────────────────────────────────────────────────────────
 
-/**
- * Create genlayer-js client connected to MetaMask.
- * MetaMask will automatically prompt for signature on writeContract calls.
- */
 async function getClient(walletAddress: string) {
   await ensureCorrectNetwork();
 
@@ -90,19 +92,24 @@ async function getClient(walletAddress: string) {
 // ── Contract Read/Write ────────────────────────────────────────────────────────
 
 /**
- * Read from contract (no MetaMask signature needed for view methods).
+ * Read from contract — works with MetaMask and Rabby.
  */
 async function readContract(
   client: any,
   functionName: string,
   args: any[] = []
 ): Promise<any> {
-  const result = await client.readContract({
-    address: getContractAddress(),
-    functionName,
-    args,
-  });
-  return mapContractResult(result);
+  try {
+    const result = await client.readContract({
+      address: getContractAddress(),
+      functionName,
+      args,
+    });
+    return mapContractResult(result);
+  } catch (err: any) {
+    console.error(`[GenLayer] readContract failed for ${functionName}:`, err.message);
+    throw err;
+  }
 }
 
 /**
